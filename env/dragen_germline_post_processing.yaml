@@ -1,0 +1,17 @@
+name: dragen_germline_post_processing
+channels:
+- bioconda
+dependencies:
+- python = 3.7
+- gatk4 = 4.1.4.0
+- verifybamid = 1.1.3
+- pytabix = 0.0.2
+- vt = 0.57721
+- vcftools = 0.1.16
+- ensembl-vep = 94.5
+- bcftools = 1.9
+- sambamba = 0.7.0
+- pip:
+  - pandas== 0.23.4
+  - pyvariantfilter == 0.0.1
+  - CoverageCalculatorPy == 1.0.1
