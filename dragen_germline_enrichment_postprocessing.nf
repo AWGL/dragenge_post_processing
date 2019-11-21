@@ -15,6 +15,7 @@ Author: Joseph Halstead
 Set up Parameters
 ========================================================================================
 */
+
 params.sequencing_run = '191010_D00501_0366_BH5JWHBCX3'
 params.bams = '/media/joseph/Storage/test_data/IlluminaTruSightOne/*/*{.bam,.bam.bai}'
 params.vcf =  "/media/joseph/Storage/test_data/IlluminaTruSightOne/${params.sequencing_run}{.vcf.gz,.vcf.gz.tbi}"
@@ -74,7 +75,6 @@ Channel
   .fromPath(params.variables)
   .set{ variables_channel }
 
-
 Channel
   .fromFilePairs(params.vcf, flat: true) 
   .set { raw_vcf }
@@ -82,7 +82,6 @@ Channel
 Channel
   .fromFilePairs(params.bams, flat: true) 
   .set { original_bams }
-
 
 Channel
   .fromPath(params.alignment_metrics)
@@ -94,6 +93,11 @@ original_bams.into{
     contamination_bams
 }
 
+
+variables_channel.into{
+    variables_meta
+    variables_ped
+}
 
 /*
 ========================================================================================
@@ -119,11 +123,14 @@ process restrict_vcf_to_roi{
 	"""
 }
 
+
+// split channel into two so we can process snps and indels seperately
 roi_vcf_channel.into {
   roi_vcf_for_snp_filtering
   roi_vcf_for_indel_filtering
 }
 
+// filter snps
 process select_and_filter_snps{
 
     input:
@@ -157,6 +164,7 @@ process select_and_filter_snps{
 
 }
 
+// filter non snps
 process select_and_filter_non_snps{
 
     input:
@@ -190,6 +198,7 @@ process select_and_filter_non_snps{
 
 }
 
+// merge filtered variants
 process merge_indels_and_snps{
 
     input:
@@ -208,13 +217,10 @@ process merge_indels_and_snps{
     bgzip ${params.sequencing_run}.roi.filtered.vcf
     tabix ${params.sequencing_run}.roi.filtered.vcf.gz
 
-
-
     """
-
-
 }
 
+// mark genotypes with low depth with a filter
 process filter_genotypes_with_low_depth{
 
     input:
@@ -234,9 +240,9 @@ process filter_genotypes_with_low_depth{
     tabix ${params.sequencing_run}.roi.filtered.gts.vcf.gz
     """
 
-
 }
 
+// split filtered vcf channel into four
 filtered_gts_vcf_channel.into{
     vcf_annotation_channel
     vcf_database_channel
@@ -266,7 +272,7 @@ process split_multiallelics_and_normalise{
 // Annotate using VEP
 process annotate_with_vep{
 
-    publishDir "${params.publish_dir}/annotated_vcf/"
+    publishDir "${params.publish_dir}/annotated_vcf/", mode: 'copy'
 
     input:
     file(normalised_vcf) from normalised_vcf_channel
@@ -309,7 +315,7 @@ process annotate_with_vep{
 // Calculate relatedness between samples
 process calculate_relatedness {
 
-    publishDir "${params.publish_dir}/relatedness/"
+    publishDir "${params.publish_dir}/relatedness/", mode: 'copy'
 
     input:
     set file(vcf), file(vcf_index) from vcf_relatedness_channel
@@ -326,9 +332,10 @@ process calculate_relatedness {
 
 }
 
+// calculate intersample contamination
 process calculate_contamination {
 
-    publishDir "${params.publish_dir}/contamination/"
+    publishDir "${params.publish_dir}/contamination/", mode: 'copy'
 
     input:
     set val(id), file(bam), file(bam_index) from contamination_bams 
@@ -350,7 +357,6 @@ process calculate_contamination {
     --exclude-non-variants \
     --exclude-filtered \
 
-
     verifyBamID \
     --vcf high_confidence_snps.vcf \
     --bam $bam \
@@ -364,9 +370,10 @@ process calculate_contamination {
     """
 }
 
+// use the alignment metrics file to calculate the sex
 process calculate_sex{
 
-    publishDir "${params.publish_dir}/calculated_sex/"
+    publishDir "${params.publish_dir}/calculated_sex/", mode: 'copy'
 
     input:
     file(metrics_file) from alignment_metrics
@@ -382,12 +389,30 @@ process calculate_sex{
 
 }
 
+// create ped file
+process create_ped {
+
+    publishDir "${params.publish_dir}/ped/", mode: 'copy'
+
+    input:
+    file(variables) from variables_ped.collect()
+
+    output:
+    file("${params.sequencing_run}.ped") into ped_channel
+
+    """
+    create_ped.py --variables "*.variables" > ${params.sequencing_run}.ped
+
+    """
+
+}
+
 
 // Variant database needs extra metadata from variables files
 process collect_metadata_for_vcf{
 
     input:
-    file(variables) from variables_channel.collect()
+    file(variables) from variables_meta.collect()
 
     output:
     file("${params.sequencing_run}_meta.txt") into meta_data_channel
@@ -405,10 +430,10 @@ process collect_metadata_for_vcf{
 
 }
 
-
+// prepare vcf for upload to existing database
 process prepare_vcf_for_database {
 
-    publishDir "${params.publish_dir}/database_vcf/"
+    publishDir "${params.publish_dir}/database_vcf/", mode: 'copy'
 
     input:
     set file(vcf), file(vcf_index) from vcf_database_channel 
@@ -439,7 +464,7 @@ process prepare_vcf_for_database {
 // Use sambamba to generate the per base coverage
 process generate_coverage_file{
 
-    publishDir "${params.publish_dir}/coverage/"
+    publishDir "${params.publish_dir}/coverage/", mode: 'copy'
 
 	input:
     set val(id), file(bam), file(bam_index) from coverage_bams 
@@ -468,7 +493,7 @@ process generate_coverage_file{
 // Use coverage calculator to get gaps etc
 process generate_gaps_files{
 
-    publishDir "${params.publish_dir}/coverage/"
+    publishDir "${params.publish_dir}/coverage/", mode: 'copy'
 
 	input:
     set val(id), file(depth_file), file(depth_file_index) from per_base_coverage_channel 
