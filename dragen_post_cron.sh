@@ -32,11 +32,15 @@ for path in $(find "$dragen_results_dir" -maxdepth 3 -mindepth 3 -type f -name "
   
   source /home/transfer/miniconda3/bin/activate $post_processing_pipeline
 
-  echo nextflow -C /data/diagnostics/pipelines/"$post_processing_pipeline"/"$post_processing_pipeline"-"$post_processing_pipeline_version"/"$panel"/"$panel"_pbs.config run -E /data/diagnostics/pipelines/"$post_processing_pipeline"/"$post_processing_pipeline"-"$post_processing_pipeline_version"/"$post_processing_pipeline".nf \
-  --bams '"$dragen_results_dir"/"$runid"/"$panel"/*/*{.bam,.bam.bai}' \
-  --vcf '"$dragen_results_dir"/"$runid"/"$panel"/"$runid"{.vcf.gz,.vcf.gz.tbi}' \
-  --variables '"$dragen_results_dir"/"$runid"/"$panel"/*/*.variables' \
-  --alignment_metrics '"$dragen_results_dir"/"$runid"/"$panel"/*/*.mapping_metrics.csv' \
+  nextflow -C \
+  /data/diagnostics/pipelines/"$post_processing_pipeline"/"$post_processing_pipeline"-"$post_processing_pipeline_version"/config/"$panel"/"$panel"_pbs.config \
+  run \
+  -E \
+  /data/diagnostics/pipelines/"$post_processing_pipeline"/"$post_processing_pipeline"-"$post_processing_pipeline_version"/"$post_processing_pipeline".nf \
+  --bams "$dragen_results_dir"/"$runid"/"$panel"/\*/\*\{.bam,.bam.bai\} \
+  --vcf "$dragen_results_dir"/"$runid"/"$panel"/"$runid"\{.vcf.gz,.vcf.gz.tbi\} \
+  --variables "$dragen_results_dir"/"$runid"/"$panel"/\*/\*.variables \
+  --alignment_metrics "$dragen_results_dir"/"$runid"/"$panel"/\*/\*.mapping_metrics.csv \
   --publish_dir "$dragen_temp_dir"/"$runid"/"$panel"/results \
   --sequencing_run "$runid" \
   -work-dir "$dragen_temp_dir"/"$runid"/"$panel"/work 
