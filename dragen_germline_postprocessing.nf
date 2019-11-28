@@ -10,12 +10,6 @@ Author: Joseph Halstead
 */
 
 
-/*
-========================================================================================
-Set up Parameters
-========================================================================================
-*/
-
 
 
 
@@ -43,18 +37,22 @@ Define initial channels
 
 Channel
   .fromPath(params.variables)
+  .ifEmpty { exit 1, "Cannot find any variables files matching: ${params.variables}" }
   .set{ variables_channel }
 
 Channel
-  .fromFilePairs(params.vcf, flat: true) 
+  .fromFilePairs(params.vcf, flat: true)
+  .ifEmpty { exit 1, "Cannot find a vcf file files matching: ${params.vcf}" }
   .set { raw_vcf }
 
 Channel
-  .fromFilePairs(params.bams, flat: true) 
+  .fromFilePairs(params.bams, flat: true)
+  .ifEmpty { exit 1, "Cannot find any bam files files matching: ${params.bams}" }
   .set { original_bams }
 
 Channel
   .fromPath(params.alignment_metrics)
+  .ifEmpty { exit 1, "Cannot find any alignment metrics files files matching: ${params.alignment_metrics}" }
   .set{ alignment_metrics }
 
 
@@ -69,6 +67,10 @@ variables_channel.into{
     variables_ped
 }
 
+
+
+
+
 /*
 ========================================================================================
 Main pipeline
@@ -78,6 +80,8 @@ Main pipeline
 
 // Use bcftools to restrict vcf to region of interest and remove chr from vcf chromosomes
 process restrict_vcf_to_roi{
+
+    cpus params.vcf_processing_cpus
 
 	input:
     set val(id), file(vcf), file(vcf_index) from raw_vcf 
@@ -102,6 +106,8 @@ roi_vcf_channel.into {
 
 // filter snps
 process select_and_filter_snps{
+
+    cpus params.vcf_processing_cpus 
 
     input:
     set file(vcf), file(vcf_index) from roi_vcf_for_snp_filtering 
@@ -137,6 +143,8 @@ process select_and_filter_snps{
 // filter non snps
 process select_and_filter_non_snps{
 
+    cpus params.vcf_processing_cpus
+
     input:
     set file(vcf), file(vcf_index) from roi_vcf_for_indel_filtering 
 
@@ -171,6 +179,8 @@ process select_and_filter_non_snps{
 // merge filtered variants
 process merge_indels_and_snps{
 
+    cpus params.vcf_processing_cpus
+
     input:
     set file(snp_vcf), file(snp_vcf_index) from filtered_snps_channel
     set file(indel_vcf), file(indel_vcf_index) from filtered_indels_channel
@@ -192,6 +202,8 @@ process merge_indels_and_snps{
 
 // mark genotypes with low depth with a filter
 process filter_genotypes_with_low_depth{
+
+    cpus params.vcf_processing_cpus
 
     input:
     set file(vcf), file(vcf_index) from filtered_vcf_channel
@@ -224,6 +236,8 @@ filtered_gts_vcf_channel.into{
 // split multiallelics and normalise
 process split_multiallelics_and_normalise{
 
+    cpus params.vcf_processing_cpus
+
 	input:
 	set file(vcf), file(vcf_index) from vcf_annotation_channel 
 
@@ -242,6 +256,8 @@ process split_multiallelics_and_normalise{
 // Annotate using VEP
 process annotate_with_vep{
 
+    cpus params.vep_cpus
+
     publishDir "${params.publish_dir}/annotated_vcf/", mode: 'copy'
 
     input:
@@ -255,7 +271,7 @@ process annotate_with_vep{
     --verbose \
     --format vcf \
     --everything \
-    --fork $params.vep_threads \
+    --fork $params.vep_cpus \
     --species homo_sapiens \
     --assembly GRCh37 \
     --input_file $normalised_vcf \
@@ -285,13 +301,15 @@ process annotate_with_vep{
 // Calculate relatedness between samples
 process calculate_relatedness {
 
+    cpus params.relatedness_cpus
+
     publishDir "${params.publish_dir}/relatedness/", mode: 'copy'
 
     input:
     set file(vcf), file(vcf_index) from vcf_relatedness_channel
 
     output:
-    file("${params.sequencing_run}.relatedness2") into relatedness_channel
+    file("${params.sequencing_run}.relatedness2")
 
     """
     vcftools --relatedness2 \
@@ -305,13 +323,15 @@ process calculate_relatedness {
 // calculate intersample contamination
 process calculate_contamination {
 
+    cpus params.vcf_processing_cpus
+
     publishDir "${params.publish_dir}/contamination/", mode: 'copy'
 
     input:
     set val(id), file(bam), file(bam_index) from contamination_bams 
 
     output:
-    file("${id}_contamination.selfSM") into contamination_channel
+    file("${id}_contamination.selfSM") 
 
     """
     gatk SelectVariants \
@@ -340,8 +360,14 @@ process calculate_contamination {
     """
 }
 
+
+
+
+
 // use the alignment metrics file to calculate the sex
 process calculate_sex{
+
+    cpus params.small_task_cpus
 
     publishDir "${params.publish_dir}/calculated_sex/", mode: 'copy'
 
@@ -350,7 +376,7 @@ process calculate_sex{
 
     output:
 
-    file("${metrics_file.simpleName}_calculated_sex.txt") into sex_channel
+    file("${metrics_file.simpleName}_calculated_sex.txt")
 
     """
     calculate_sex.py --file $metrics_file > ${metrics_file.simpleName}_calculated_sex.txt
@@ -361,6 +387,8 @@ process calculate_sex{
 
 // create ped file
 process create_ped {
+
+    cpus params.small_task_cpus
 
     publishDir "${params.publish_dir}/ped/", mode: 'copy'
 
@@ -380,6 +408,8 @@ process create_ped {
 
 // Variant database needs extra metadata from variables files
 process collect_metadata_for_vcf{
+
+    cpus params.small_task_cpus
 
     input:
     file(variables) from variables_meta.collect()
@@ -403,6 +433,8 @@ process collect_metadata_for_vcf{
 // prepare vcf for upload to existing database
 process prepare_vcf_for_database {
 
+    cpus params.vcf_processing_cpus
+
     publishDir "${params.publish_dir}/database_vcf/", mode: 'copy'
 
     input:
@@ -410,7 +442,7 @@ process prepare_vcf_for_database {
     file(metadata) from meta_data_channel
 
     output:
-    file("${params.sequencing_run}.hard-filtered.roi.database.vcf") into database_vcf
+    file("${params.sequencing_run}.hard-filtered.roi.database.vcf")
 
     """
     # get header 
@@ -433,6 +465,8 @@ process prepare_vcf_for_database {
 
 // Use sambamba to generate the per base coverage
 process generate_coverage_file{
+
+    cpus params.small_task_cpus
 
     publishDir "${params.publish_dir}/coverage/", mode: 'copy'
 
@@ -463,13 +497,15 @@ process generate_coverage_file{
 // Use coverage calculator to get gaps etc
 process generate_gaps_files{
 
+    params.small_task_cpus
+
     publishDir "${params.publish_dir}/coverage/", mode: 'copy'
 
 	input:
     set val(id), file(depth_file), file(depth_file_index) from per_base_coverage_channel 
 
     output:
-    set file("${id}.coverage"), file("${id}.gaps"),  file("${id}.missing"), file("${id}.totalCoverage") into gaps_channel
+    set file("${id}.coverage"), file("${id}.gaps"),  file("${id}.missing"), file("${id}.totalCoverage")
 
 	"""
 	CoverageCalculatorPy.py \
@@ -482,3 +518,4 @@ process generate_gaps_files{
 
 	"""
 }
+
