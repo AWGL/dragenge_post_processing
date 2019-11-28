@@ -1,4 +1,4 @@
-name: dragen_germline_post_processing
+name: dragenge_post_processing
 channels:
 - bioconda
 dependencies:
@@ -11,6 +11,7 @@ dependencies:
 - ensembl-vep = 94.5
 - bcftools = 1.9
 - sambamba = 0.7.0
+- nextflow = 19
 - pip:
   - pandas== 0.23.4
   - pyvariantfilter == 0.0.1
