@@ -98,32 +98,22 @@ process restrict_vcf_to_roi{
 }
 
 
-// split channel into two so we can process snps and indels seperately
-roi_vcf_channel.into {
-  roi_vcf_for_snp_filtering
-  roi_vcf_for_indel_filtering
-}
-
 // filter snps
 process select_and_filter_snps{
 
     cpus params.vcf_processing_cpus 
 
     input:
-    set file(vcf), file(vcf_index) from roi_vcf_for_snp_filtering 
+    set file(vcf), file(vcf_index) from roi_vcf_channel 
 
     output:
-    set file("${params.sequencing_run}.roi.snps.filtered.vcf.gz"), file("${params.sequencing_run}.roi.snps.filtered.vcf.gz.tbi") into filtered_snps_channel 
+    set file("${params.sequencing_run}.roi.filtered.vcf.gz"), file("${params.sequencing_run}.roi.filtered.vcf.gz.tbi") into filtered_vcf_channel 
 
     """
-    gatk SelectVariants \
-    -V $vcf \
-    -O ${params.sequencing_run}.roi.snps.vcf \
-    --select-type-to-include SNP 
 
     gatk VariantFiltration \
-    -V ${params.sequencing_run}.roi.snps.vcf \
-    -O ${params.sequencing_run}.roi.snps.filtered.vcf \
+    -V $vcf \
+    -O ${params.sequencing_run}.roi.filtered.vcf \
     --filter-expression "QUAL < $params.snps_min_qual" \
     --filter-name "SNPLowQual" \
     --filter-expression "FS > $params.snps_max_fs" \
@@ -133,72 +123,13 @@ process select_and_filter_snps{
     --filter-expression "ReadPosRankSum < $params.snps_min_readposranksum" \
     --filter-name "SNPLowReadPosRankSum"
 
-    bgzip ${params.sequencing_run}.roi.snps.filtered.vcf
-    tabix ${params.sequencing_run}.roi.snps.filtered.vcf.gz
-
-    """
-
-}
-
-// filter non snps
-process select_and_filter_non_snps{
-
-    cpus params.vcf_processing_cpus
-
-    input:
-    set file(vcf), file(vcf_index) from roi_vcf_for_indel_filtering 
-
-    output:
-    set file("${params.sequencing_run}.roi.indels.filtered.vcf.gz"), file("${params.sequencing_run}.roi.indels.filtered.vcf.gz.tbi") into filtered_indels_channel 
-
-    """
-    gatk SelectVariants \
-    -V $vcf \
-    -O ${params.sequencing_run}.roi.indels.vcf \
-    --select-type-to-exclude SNP 
-
-    gatk VariantFiltration \
-    -V ${params.sequencing_run}.roi.indels.vcf \
-    -O ${params.sequencing_run}.roi.indels.filtered.vcf \
-    --filter-expression "QUAL < $params.snps_min_qual" \
-    --filter-name "IndelLowQual" \
-    --filter-expression "FS > $params.indels_max_fs" \
-    --filter-name "IndelHighFS" \
-    --filter-expression "SOR > $params.indels_max_sor" \
-    --filter-name "IndelHighSOR" \
-    --filter-expression "ReadPosRankSum < $params.indels_min_readposranksum" \
-    --filter-name "IndelReadPosRankSum" 
-
-    bgzip ${params.sequencing_run}.roi.indels.filtered.vcf
-    tabix ${params.sequencing_run}.roi.indels.filtered.vcf.gz
-
-    """
-
-}
-
-// merge filtered variants
-process merge_indels_and_snps{
-
-    cpus params.vcf_processing_cpus
-
-    input:
-    set file(snp_vcf), file(snp_vcf_index) from filtered_snps_channel
-    set file(indel_vcf), file(indel_vcf_index) from filtered_indels_channel
-
-    output:
-    set file("${params.sequencing_run}.roi.filtered.vcf.gz"), file("${params.sequencing_run}.roi.filtered.vcf.gz.tbi") into filtered_vcf_channel
-
-    """
-    gatk MergeVcfs \
-    -I $snp_vcf \
-    -I $indel_vcf \
-    -O ${params.sequencing_run}.roi.filtered.vcf
-
     bgzip ${params.sequencing_run}.roi.filtered.vcf
     tabix ${params.sequencing_run}.roi.filtered.vcf.gz
 
     """
+
 }
+
 
 // mark genotypes with low depth with a filter
 process filter_genotypes_with_low_depth{
