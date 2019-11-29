@@ -6,7 +6,7 @@ dependencies:
 - gatk4 = 4.1.4.0
 - verifybamid = 1.1.3
 - pytabix = 0.0.2
-- vt = 0.57721
+- vt = 2015.11.10
 - vcftools = 0.1.16
 - ensembl-vep = 94.5
 - bcftools = 1.9
