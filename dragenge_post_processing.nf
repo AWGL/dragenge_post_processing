@@ -115,13 +115,13 @@ process select_and_filter_snps{
     -V $vcf \
     -O ${params.sequencing_run}.roi.filtered.vcf \
     --filter-expression "QUAL < $params.snps_min_qual" \
-    --filter-name "SNPLowQual" \
+    --filter-name "LowQual" \
     --filter-expression "FS > $params.snps_max_fs" \
-    --filter-name "SNPHighFS" \
+    --filter-name "HighFS" \
     --filter-expression "MQRankSum < $params.snps_min_mqranksum" \
-    --filter-name "SNPLowMQRankSum" \
+    --filter-name "LowMQRankSum" \
     --filter-expression "ReadPosRankSum < $params.snps_min_readposranksum" \
-    --filter-name "SNPLowReadPosRankSum"
+    --filter-name "LowReadPosRankSum"
 
     bgzip ${params.sequencing_run}.roi.filtered.vcf
     tabix ${params.sequencing_run}.roi.filtered.vcf.gz
