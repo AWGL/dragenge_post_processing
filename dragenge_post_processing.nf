@@ -7,13 +7,6 @@ Nextflow pipeline for germline variant calling
 
 Author: Joseph Halstead
 
-*/
-
-
-
-
-
-/*
 ========================================================================================
 Define initial files
 ========================================================================================
@@ -68,9 +61,6 @@ variables_channel.into{
 }
 
 
-
-
-
 /*
 ========================================================================================
 Main pipeline
@@ -78,7 +68,7 @@ Main pipeline
 */
 
 
-// Use bcftools to restrict vcf to region of interest and remove chr from vcf chromosomes
+// Use bcftools to restrict vcf to region of interest
 process restrict_vcf_to_roi{
 
     cpus params.vcf_processing_cpus
@@ -292,30 +282,6 @@ process calculate_contamination {
 }
 
 
-
-
-
-// use the alignment metrics file to calculate the sex
-process calculate_sex{
-
-    cpus params.small_task_cpus
-
-    publishDir "${params.publish_dir}/calculated_sex/", mode: 'copy'
-
-    input:
-    file(metrics_file) from alignment_metrics
-
-    output:
-
-    file("${metrics_file.simpleName}_calculated_sex.txt")
-
-    """
-    calculate_sex.py --file $metrics_file > ${metrics_file.simpleName}_calculated_sex.txt
-
-    """
-
-}
-
 // create ped file
 process create_ped {
 
@@ -424,6 +390,11 @@ process generate_coverage_file{
 	"""
 }
 
+// split filtered vcf channel into four
+per_base_coverage_channel.into{
+    per_base_coverage_channel_gaps
+    per_base_coverage_channel_sex
+}
 
 // Use coverage calculator to get gaps etc
 process generate_gaps_files{
@@ -433,7 +404,7 @@ process generate_gaps_files{
     publishDir "${params.publish_dir}/coverage/", mode: 'copy'
 
 	input:
-    set val(id), file(depth_file), file(depth_file_index) from per_base_coverage_channel 
+    set val(id), file(depth_file), file(depth_file_index) from per_base_coverage_channel_gaps 
 
     output:
     set file("${id}.coverage"), file("${id}.gaps"),  file("${id}.missing"), file("${id}.totalCoverage")
@@ -450,3 +421,24 @@ process generate_gaps_files{
 	"""
 }
 
+
+// use the alignment metrics file to calculate the sex
+process calculate_sex{
+
+    cpus params.small_task_cpus
+
+    publishDir "${params.publish_dir}/calculated_sex/", mode: 'copy'
+
+    input:
+    set val(id), file(depth_file), file(depth_file_index) from per_base_coverage_channel_sex
+
+    output:
+
+    file("${id}_calculated_sex.txt")
+
+    """
+    calculate_sex.py --file $depth_file > ${id}_calculated_sex.txt
+
+    """
+
+}

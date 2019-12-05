@@ -16,11 +16,15 @@ file_name = Path(args.file[0]).stem
 female_theshold = 150
 male_theshold = 50
 
-df = pd.read_csv(args.file[0], names =['desc', 'summary', 'name', 'value1', 'value_pct'])
+df = pd.read_csv(args.file[0], sep='\t', header=None, names=['chr', 'pos', 'cov1', 'cov2', 'cov3'])
 
-filtered_df = df[(df['desc'] == 'MAPPING/ALIGNING SUMMARY') & (df['name'] =='XAvgCov/YAvgCov ratio over target region')]
+df_grouped = df.groupby('chr').mean()
+df_grouped['chr'] = df_grouped.index
 
-x_y_ratio = filtered_df.iloc[0]['value1']
+x_cov = df_grouped[df_grouped['chr']=='X'].iloc[0]['cov1']
+y_cov = df_grouped[df_grouped['chr']=='Y'].iloc[0]['cov1']
+
+x_y_ratio = x_cov/y_cov
 
 if x_y_ratio < male_theshold:
 
