@@ -22,6 +22,11 @@ coverage_bed = file(params.coverage_bed)
 coverage_groups = file(params.coverage_groups)
 high_confidence_snps = file(params.high_confidence_snps)
 
+reference_genome_faidx = file(params.reference_genome_faidx)
+giab_baseline = file(params.giab_baseline)
+giab_high_confidence_bed = file(params.giab_high_confidence_bed)
+giab_reference_genome_sdf = file(params.giab_reference_genome_sdf)
+
 /*
 ========================================================================================
 Define initial channels
@@ -42,11 +47,6 @@ Channel
   .fromFilePairs(params.bams, flat: true)
   .ifEmpty { exit 1, "Cannot find any bam files files matching: ${params.bams}" }
   .set { original_bams }
-
-Channel
-  .fromPath(params.alignment_metrics)
-  .ifEmpty { exit 1, "Cannot find any alignment metrics files files matching: ${params.alignment_metrics}" }
-  .set{ alignment_metrics }
 
 
 original_bams.into{
@@ -339,7 +339,7 @@ process prepare_vcf_for_database {
     file(metadata) from meta_data_channel
 
     output:
-    file("${params.sequencing_run}.hard-filtered.roi.database.vcf")
+    file("${params.sequencing_run}.hard-filtered.roi.database.vcf") into sensitivity_calculation_vcf
 
     """
     # get header 
@@ -394,6 +394,7 @@ process generate_coverage_file{
 per_base_coverage_channel.into{
     per_base_coverage_channel_gaps
     per_base_coverage_channel_sex
+    per_base_coverage_channel_sensitivity
 }
 
 // Use coverage calculator to get gaps etc
@@ -433,12 +434,41 @@ process calculate_sex{
     set val(id), file(depth_file), file(depth_file_index) from per_base_coverage_channel_sex
 
     output:
-
     file("${id}_calculated_sex.txt")
 
     """
     calculate_sex.py --file $depth_file > ${id}_calculated_sex.txt
 
     """
+
+}
+
+// filter so we only get the coverage for the giab sample
+per_base_coverage_channel_sensitivity.filter( {it[0] =~ /$params.giab_sample.*/ } ).set{ giab_per_base_coverage_channel }
+
+// calculate sensitivity using giab
+process calculate_sensitivity{
+
+    cpus params.small_task_cpus
+
+    publishDir "${params.publish_dir}/sensitivity/", mode: 'copy'
+
+    input:
+    set val(id), file(depth_file), file(depth_file_index) from giab_per_base_coverage_channel 
+    file(vcf) from sensitivity_calculation_vcf
+
+    output:
+    file("${id}_sensitivity.txt")
+
+    """
+    calculate_sensitivity.sh $depth_file \
+    $params.giab_sample \
+    $vcf \
+    $giab_baseline \
+    $reference_genome_faidx \
+    $giab_high_confidence_bed \
+    $giab_reference_genome_sdf > ${id}_sensitivity.txt
+    """
+
 
 }

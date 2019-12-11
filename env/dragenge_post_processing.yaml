@@ -1,6 +1,7 @@
 name: dragenge_post_processing
 channels:
 - bioconda
+- r
 dependencies:
 - python = 3.7
 - gatk4 = 4.1.4.0
@@ -12,6 +13,9 @@ dependencies:
 - bcftools = 1.9
 - sambamba = 0.7.0
 - nextflow = 19
+- bedtools = 2.29.1
+- r = 3.6.1
+- rtg-tools = 3.10.1
 - pip:
   - pandas== 0.23.4
   - pyvariantfilter == 0.0.1
