@@ -29,6 +29,9 @@ for path in $(find "$dragen_results_dir" -maxdepth 3 -mindepth 3 -type f -name "
 
   echo $post_processing_pipeline
   echo $post_processing_pipeline_version
+
+
+  mkdir -p "$dragen_temp_dir"/"$runid"/"$panel"/results
   
   source /home/transfer/miniconda3/bin/activate $post_processing_pipeline
 
