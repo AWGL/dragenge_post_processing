@@ -460,6 +460,9 @@ process calculate_sensitivity{
     output:
     file("${id}_sensitivity.txt")
 
+    when:
+    params.calculate_sensitivity == true 
+
     """
     calculate_sensitivity.sh $depth_file \
     $params.giab_sample \
