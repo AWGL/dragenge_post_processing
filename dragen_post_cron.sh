@@ -40,12 +40,19 @@ for path in $(find "$dragen_results_dir" -maxdepth 3 -mindepth 3 -type f -name "
   --bams "$dragen_results_dir"/"$runid"/"$panel"/\*/\*\{.bam,.bam.bai\} \
   --vcf "$dragen_results_dir"/"$runid"/"$panel"/"$runid"\{.vcf.gz,.vcf.gz.tbi\} \
   --variables "$dragen_results_dir"/"$runid"/"$panel"/\*/\*.variables \
-  --alignment_metrics "$dragen_results_dir"/"$runid"/"$panel"/\*/\*.mapping_metrics.csv \
   --publish_dir "$dragen_temp_dir"/"$runid"/"$panel"/results \
   --sequencing_run "$runid" \
-  -work-dir "$dragen_temp_dir"/"$runid"/"$panel"/work 
+  -work-dir "$dragen_temp_dir"/"$runid"/"$panel"/work &> "$dragen_temp_dir"/"$runid"/"$panel"/results/pipeline.log 
+  
+  mv "$dragen_temp_dir"/"$runid"/"$panel"/results "$dragen_results_dir"/"$runid"/"$panel"/
+
+  rm -r "$dragen_temp_dir"/"$runid"/"$panel"/work 
 
   fi
+
+
+
+
 
 done
 
