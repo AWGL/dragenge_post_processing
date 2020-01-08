@@ -21,6 +21,8 @@ vep_cache = file(params.vep_cache)
 coverage_bed = file(params.coverage_bed)
 coverage_groups = file(params.coverage_groups)
 high_confidence_snps = file(params.high_confidence_snps)
+hotspots = file(params.hotspots)
+refseq = file(params.refseq)
 
 reference_genome_faidx = file(params.reference_genome_faidx)
 giab_baseline = file(params.giab_baseline)
@@ -163,12 +165,12 @@ process split_multiallelics_and_normalise{
 	set file(vcf), file(vcf_index) from vcf_annotation_channel 
 
 	output:
-	set file("${params.sequencing_run}.hard-filtered.roi.norm.vcf.gz"), file("${params.sequencing_run}.hard-filtered.roi.norm.vcf.gz.tbi") into normalised_vcf_channel
+	set file("${params.sequencing_run}.roi.filtered.norm.vcf.gz"), file("${params.sequencing_run}.roi.filtered.norm.vcf.gz.tbi") into normalised_vcf_channel
 
 	"""
-	zcat $vcf | vt decompose -s - | vt normalize -r $reference_genome - > ${params.sequencing_run}.hard-filtered.roi.norm.vcf
-	bgzip ${params.sequencing_run}.hard-filtered.roi.norm.vcf
-	tabix ${params.sequencing_run}.hard-filtered.roi.norm.vcf.gz
+	zcat $vcf | vt decompose -s - | vt normalize -r $reference_genome - > ${params.sequencing_run}.roi.filtered.norm.vcf
+	bgzip ${params.sequencing_run}.roi.filtered.norm.vcf
+	tabix ${params.sequencing_run}.roi.filtered.norm.vcf.gz
 
 	"""
 
@@ -185,7 +187,7 @@ process annotate_with_vep{
     file(normalised_vcf) from normalised_vcf_channel
 
     output:
-    set file("${params.sequencing_run}.hard-filtered.roi.norm.anno.vcf.gz"), file("${params.sequencing_run}.hard-filtered.roi.norm.anno.vcf.gz.tbi")  into annotated_vcf
+    set file("${params.sequencing_run}.roi.filtered.norm.anno.vcf.gz"), file("${params.sequencing_run}.roi.filtered.norm.anno.vcf.gz.tbi")  into annotated_vcf
 
     """
     vep \
@@ -196,7 +198,7 @@ process annotate_with_vep{
     --species homo_sapiens \
     --assembly GRCh37 \
     --input_file $normalised_vcf \
-    --output_file ${params.sequencing_run}.hard-filtered.roi.norm.anno.vcf \
+    --output_file ${params.sequencing_run}.roi.filtered.norm.anno.vcf \
     --force_overwrite \
     --cache \
     --dir  $vep_cache \
@@ -213,8 +215,8 @@ process annotate_with_vep{
     --custom ${gnomad_genomes},gnomADg,vcf,exact,0,AF_POPMAX \
     --custom ${gnomad_exomes},gnomADe,vcf,exact,0,AF_POPMAX 
 
-    bgzip ${params.sequencing_run}.hard-filtered.roi.norm.anno.vcf
-    tabix ${params.sequencing_run}.hard-filtered.roi.norm.anno.vcf.gz
+    bgzip ${params.sequencing_run}.roi.filtered.norm.anno.vcf
+    tabix ${params.sequencing_run}.roi.filtered.norm.anno.vcf.gz
 
     """
 }
@@ -339,20 +341,20 @@ process prepare_vcf_for_database {
     file(metadata) from meta_data_channel
 
     output:
-    file("${params.sequencing_run}.hard-filtered.roi.database.vcf") into sensitivity_calculation_vcf
+    file("${params.sequencing_run}.roi.filtered.database.vcf") into sensitivity_calculation_vcf
 
     """
     # get header 
 
     zcat $vcf | grep "^##" > header.txt
 
-    cat header.txt $metadata > ${params.sequencing_run}.hard-filtered.roi.header.vcf
+    cat header.txt $metadata > ${params.sequencing_run}.roi.filtered.header.vcf
 
-    zcat $vcf | grep -v "^##" >> ${params.sequencing_run}.hard-filtered.roi.header.vcf
+    zcat $vcf | grep -v "^##" >> ${params.sequencing_run}.roi.filtered.header.vcf
 
     # remove mt variants
 
-    awk '\$1 !~ /^MT/ { print \$0 }' ${params.sequencing_run}.hard-filtered.roi.header.vcf > ${params.sequencing_run}.hard-filtered.roi.database.vcf
+    awk '\$1 !~ /^MT/ { print \$0 }' ${params.sequencing_run}.roi.filtered.header.vcf > ${params.sequencing_run}.roi.filtered.database.vcf
 
     """
 
@@ -371,21 +373,27 @@ process generate_coverage_file{
     set val(id), file(bam), file(bam_index) from coverage_bams 
 
     output:
-    set val(id), file("${id}.per_base_coverage.gz"), file("${id}.per_base_coverage.gz.tbi") into per_base_coverage_channel
+    set val(id), file("${id}_depth_of_coverage.gz"), file("${id}_depth_of_coverage.gz.tbi") into per_base_coverage_channel
+    file("${id}_depth_of_coverage.sample_summary") into depth_summary
 
 	"""
-	sambamba depth base \
-	-L $capture_bed \
-	--min-coverage=0 \
-	--min-base-quality=10 \
-	--filter='mapping_quality > 19 and not duplicate and not failed_quality_control' \
-	$bam | \
-	grep -v REF | \
-	awk '{OFS="\t"} {print \$1,\$2,\$3,\$3,\$3 }' | \
-	sort -k1,1 -k2,2n | \
-	bgzip > ${id}.per_base_coverage.gz
+    gatk3 -T DepthOfCoverage \
+    -R $reference_genome \
+    -o ${id}_depth_of_coverage \
+    -I $bam \
+    -L $capture_bed \
+    --countType COUNT_FRAGMENTS \
+    --minMappingQuality 20 \
+    --minBaseQuality 10 \
+    -ct $params.min_coverage \
+    --omitLocusTable \
+    -rf MappingQualityUnavailable \
+    -dt NONE
 
-	tabix -b 2 -e 2 -s 1  ${id}.per_base_coverage.gz
+    sed 's/:/\t/g' ${id}_depth_of_coverage \
+    | grep -v 'Locus' | sort -k1,1 -k2,2n | bgzip > ${id}_depth_of_coverage.gz
+
+    tabix -b 2 -e 2 -s 1 ${id}_depth_of_coverage.gz
 
 	"""
 }
@@ -396,6 +404,7 @@ per_base_coverage_channel.into{
     per_base_coverage_channel_sex
     per_base_coverage_channel_sensitivity
 }
+
 
 // Use coverage calculator to get gaps etc
 process generate_gaps_files{
@@ -408,16 +417,16 @@ process generate_gaps_files{
     set val(id), file(depth_file), file(depth_file_index) from per_base_coverage_channel_gaps 
 
     output:
-    set file("${id}.coverage"), file("${id}.gaps"),  file("${id}.missing"), file("${id}.totalCoverage")
+    set file("${id}_gaps.bed"), file("${id}_clinical_coverage_target_metrics.txt"),  file("${id}_clinical_coverage_gene_coverage.txt")
 
 	"""
-	CoverageCalculatorPy.py \
-	-D $depth_file \
-	-B $coverage_bed \
-	-d $params.min_coverage \
-	-o ${id} \
-	-O ./ \
-	-g $coverage_groups
+    get_coverage.sh \
+    $capture_bed \
+    $hotspots \
+    $depth_file \
+    $id \
+    $params.min_coverage \
+    $refseq
 
 	"""
 }
