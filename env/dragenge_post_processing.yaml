@@ -12,6 +12,7 @@ dependencies:
 - vcftools = 0.1.16
 - ensembl-vep = 94.5
 - bcftools = 1.9
+- bedtools = 2.29.2
 - sambamba = 0.7.0
 - nextflow = 19
 - bedtools = 2.29.1

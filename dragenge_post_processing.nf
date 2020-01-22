@@ -484,3 +484,22 @@ process calculate_sensitivity{
 
 
 }
+
+workflow.onComplete{
+
+    if (workflow.success){
+
+        ran_ok = "${params.sequencing_run} success!.\n"
+    }
+    else{
+
+        ran_ok = "${params.sequencing_run} fail!.\n"
+
+    }
+
+    def newFile = new File("${params.publish_dir}/pipeline_complete.txt")
+
+    newFile.createNewFile()
+    newFile.append(ran_ok)
+
+}
