@@ -497,7 +497,7 @@ workflow.onComplete{
 
     }
 
-    def newFile = new File("${params.publish_dir}/pipeline_complete.txt")
+    def newFile = new File("${params.publish_dir}/post_processing_finished.txt")
 
     newFile.createNewFile()
     newFile.append(ran_ok)
