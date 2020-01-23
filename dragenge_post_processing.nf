@@ -409,7 +409,7 @@ per_base_coverage_channel.into{
 // Use coverage calculator to get gaps etc
 process generate_gaps_files{
 
-    params.small_task_cpus
+    cpus params.small_task_cpus
 
     publishDir "${params.publish_dir}/coverage/", mode: 'copy'
 
