@@ -15,10 +15,7 @@ dependencies:
 - bedtools = 2.29.2
 - sambamba = 0.7.0
 - nextflow = 19
-- bedtools = 2.29.1
-- r = 3.6.1
+- r-base = 3.6.1
 - rtg-tools = 3.10.1
 - pip:
   - pandas== 0.23.4
-  - pyvariantfilter == 0.0.1
-  - CoverageCalculatorPy == 1.0.1
