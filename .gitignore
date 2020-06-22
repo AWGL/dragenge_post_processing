@@ -1,0 +1,5 @@
+results/
+work/
+.nextflow/
+.nextflow.*
+.ipynb_checkpoints/
