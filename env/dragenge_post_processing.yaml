@@ -10,7 +10,7 @@ dependencies:
 - pytabix = 0.0.2
 - vt = 2015.11.10
 - vcftools = 0.1.16
-- ensembl-vep = 94.5
+- ensembl-vep = 100
 - bcftools = 1.9
 - bedtools = 2.29.2
 - sambamba = 0.7.0
