@@ -8,21 +8,20 @@ giab_baseline=$4
 reference_faidx=$5
 giab_high_confidence_bed=$6
 reference_genome_sdf=$7
+roi_bed=$8
 
 # generate bed of regions with > 20x
 zcat $depth_of_coverage_file \
      | awk '$3>=20{print $1"\t"$2-1"\t"$2}' | grep -v "\-1" \
      | bedtools sort -faidx $reference_faidx \
-     | bedtools merge > "$sample_id"_gt_eq_20x.bed  
+     | bedtools merge > "$sample_id"_gt_eq_20x.bed
 
-
-bgzip $call_vcf
-tabix "$call_vcf".gz
+bedtools intersect -a "$sample_id"_gt_eq_20x.bed -b $roi_bed > "$sample_id"_final_roi.bed
 
 rtg vcfeval \
 -b $giab_baseline \
---bed-regions "$sample_id"_gt_eq_20x.bed   \
--c "$call_vcf".gz \
+--bed-regions "$sample_id"_final_roi.bed   \
+-c "$call_vcf" \
 -e $giab_high_confidence_bed \
 -o "RTG" \
 -t $reference_genome_sdf \

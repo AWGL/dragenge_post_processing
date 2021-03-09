@@ -4,18 +4,19 @@ channels:
 - r
 dependencies:
 - python = 3.7
-- gatk4 = 4.1.4.0
 - gatk = 3.8
-- verifybamid = 1.1.3
 - pytabix = 0.0.2
 - vt = 2015.11.10
 - vcftools = 0.1.16
 - ensembl-vep = 100
 - bcftools = 1.9
 - bedtools = 2.29.2
-- sambamba = 0.7.0
 - nextflow = 19
 - r-base = 3.6.1
 - rtg-tools = 3.10.1
+- slivar = 0.1.11
+- verifybamid = 1.1.3
 - pip:
   - pandas== 0.23.4
+  - pyvariantfilter ==1.0.8
+
