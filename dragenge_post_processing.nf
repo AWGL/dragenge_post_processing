@@ -12,7 +12,7 @@ Define initial files
 ========================================================================================
 */
 
-params.pipeline_version = "3.0.0"
+params.pipeline_version = "300"
 
 capture_bed = file(params.capture_bed)
 coverage_per_base_bed = file(params.coverage_per_base_bed)
