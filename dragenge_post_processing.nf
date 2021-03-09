@@ -434,7 +434,6 @@ process get_per_base_coverage{
 
     output:
     set val(id), file("${id}_depth_of_coverage.csv.gz"), file("${id}_depth_of_coverage.csv.gz.tbi") into per_base_coverage_ch
-    file("${id}_depth_of_coverage.sample_summary")
 
     """
     gatk3 $params.medium_java_options -T DepthOfCoverage \
@@ -463,6 +462,34 @@ per_base_coverage_ch.into{
     sex_reporting_ch
     coverage_reporting_ch
     sensitivity_coverage_ch
+    per_base_coverage_summary_ch
+}
+
+// Generate a depth/coverage summary report e.g. mean depth etc
+process create_depth_summary {
+
+    cpus params.medium_task_cpus
+
+    publishDir "${params.publish_dir}/coverage/", mode: 'copy'
+
+    input:
+    set val(key), file(coverage), file(coverage_idx) from per_base_coverage_summary_ch
+
+    output:
+    file("${key}.depth_summary") into depth_summary_ch
+
+    """
+    zcat $coverage | awk '{print \$1"\t"\$2-1"\t"\$2"\t"\$3}' > "$key"_coverage_bed.bed
+
+    bedtools intersect -a "$key"_coverage_bed.bed -b $capture_bed > "$key"_coverage_bed_final.bed
+
+    awk '{print \$1"\t"\$2"\t"\$4"\t"\$4}' "$key"_coverage_bed_final.bed > "$key"_per_base_final.csv
+
+    create_depth_summary.py \
+    --input_file ${key}_per_base_final.csv \
+    --output_file ${key}.depth_summary \
+    ${params.depth_thresholds.collect { "$it" }.join(" ")}
+    """
 }
 
 
