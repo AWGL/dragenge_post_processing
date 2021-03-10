@@ -60,6 +60,7 @@ variables_ch.into{
 original_bams_ch.into{
     original_bams_coverage_ch
     original_bams_contamination_ch
+    original_bams_sensitivity_ch
 
 }
 
@@ -543,7 +544,7 @@ process get_region_coverage_data {
 }
 
 // filter so we only get the coverage for the giab sample
-sensitivity_coverage_ch.filter( {it[0] =~ /$params.giab_sample.*/ } ).set{ giab_sensitivity_coverage_ch }
+original_bams_sensitivity_ch.filter( {it[0] =~ /$params.giab_sample.*/ } ).set{ giab_original_bams_sensitivity_ch }
 
 // calculate sensitivity using giab
 process calculate_sensitivity{
@@ -553,7 +554,7 @@ process calculate_sensitivity{
     publishDir "${params.publish_dir}/sensitivity/", mode: 'copy'
 
     input:
-    set val(id), file(depth_file), file(depth_file_index) from giab_sensitivity_coverage_ch 
+    set val(id), file(bam), file(bam_index) from giab_original_bams_sensitivity_ch 
     set file(vcf), file(vcf_idx) from quality_filtered_vcf_sensitivity_ch
 
     output:
@@ -563,13 +564,17 @@ process calculate_sensitivity{
     params.calculate_sensitivity == true 
 
     """
-    calculate_sensitivity.sh $depth_file \
+    calculate_sensitivity.sh $bam \
     $params.giab_sample \
     $vcf \
     $giab_baseline \
     $reference_genome_index \
     $giab_high_confidence_bed \
     $giab_reference_genome_sdf \
-    $capture_bed > ${id}_sensitivity.txt
+    $capture_bed \
+    $params.min_mapping_quality_coverage \
+    $params.min_mapping_quality_coverage \
+    $reference_genome \
+    > ${id}_sensitivity.txt
     """
 }
