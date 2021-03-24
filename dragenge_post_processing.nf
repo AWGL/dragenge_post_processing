@@ -578,3 +578,23 @@ process calculate_sensitivity{
     > ${id}_sensitivity.txt
     """
 }
+
+// Create marker once complete
+workflow.onComplete{
+
+	if (workflow.success){
+
+		ran_ok = "${params.sequencing_run} success!.\n"
+	}
+	else{
+
+		ran_ok = "${params.sequencing_run} fail!.\n"
+
+	}
+
+	def newFile = new File("${params.publish_dir}/post_processing_finished.txt")
+
+	newFile.createNewFile()
+	newFile.append(ran_ok)
+}
+
