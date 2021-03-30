@@ -543,6 +543,28 @@ process get_region_coverage_data {
     """
 }
 
+// merge coverage data - experimental for variant database
+process merge_coverage_data {
+
+    cpus params.medium_task_cpus
+
+    publishDir "${params.publish_dir}/coverage/", mode: 'copy'
+
+    input:
+    file(coverage_files) from gene_summary_data.collect()
+
+    output:
+    file("${params.sequencing_run}_coverage.tar")
+
+    """
+    for i in ./*_gene_coverage_summary.csv;  do cp \$i \$i.copy && gzip \$i.copy; done
+
+    tar -cvf ${params.sequencing_run}_coverage.tar *_gene_coverage_summary.csv.copy.gz
+    """
+}
+
+
+
 // filter so we only get the coverage for the giab sample
 original_bams_sensitivity_ch.filter( {it[0] =~ /$params.giab_sample.*/ } ).set{ giab_original_bams_sensitivity_ch }
 
