@@ -87,17 +87,13 @@ process create_ped {
     file(variables) from variables_ped_ch.collect()
 
     output:
-    file("${params.sequencing_run}.ped") into ped_ch
+    file("${params.sequencing_run}.ped") into (ped_config_ch, ped_reporting_ch)
 
     """
     create_ped.py --variables "*.variables" > ${params.sequencing_run}.ped
     """
 }
 
-ped_ch.into{
-    ped_config_ch
-    ped_reporting_ch
-}
 
 
 // Create json for qiagen upload
@@ -156,7 +152,9 @@ process quality_filter_vcf{
     set file(vcf), file(vcf_idx) from roi_vcf_ch
 
     output:
-    set file("${params.sequencing_run}_roi_qual.vcf.gz"), file("${params.sequencing_run}_roi_qual.vcf.gz.tbi") into quality_filtered_vcf_ch
+    set file("${params.sequencing_run}_roi_qual.vcf.gz"), file("${params.sequencing_run}_roi_qual.vcf.gz.tbi") into (quality_filtered_vcf_annotation_ch,
+                                                                                                                    quality_filtered_vcf_old_variant_database_ch, 
+                                                                                                                    quality_filtered_vcf_sensitivity_ch )
 
     """
     quality_filter.sh \
@@ -171,13 +169,6 @@ process quality_filter_vcf{
 
 }
 
-quality_filtered_vcf_ch.into{
-    quality_filtered_vcf_annotation_ch
-    quality_filtered_vcf_old_variant_database_ch
-    quality_filtered_vcf_sensitivity_ch
-}
-
-
 // Annotate using VEP and gnomad and SpliceAI
 process normalise_annotate_with_vep_and_gnomad{
 
@@ -190,7 +181,7 @@ process normalise_annotate_with_vep_and_gnomad{
     set file(quality_vcf), file(quality_vcf_idx) from quality_filtered_vcf_annotation_ch
 
     output:
-    set file("${params.sequencing_run}_anno.vcf.gz"), file("${params.sequencing_run}_anno.vcf.gz.tbi") into annotated_vcf_ch
+    set file("${params.sequencing_run}_anno.vcf.gz"), file("${params.sequencing_run}_anno.vcf.gz.tbi") into (annotated_vcf_relatedness_ch, annotated_vcf_samples_ch, annotated_vcf_reporting_ch)
     file("${params.sequencing_run}.norm.anno.vcf.gz.md5")
 
     """
@@ -247,12 +238,6 @@ process normalise_annotate_with_vep_and_gnomad{
 
     md5sum ${params.sequencing_run}_anno.vcf.gz > ${params.sequencing_run}.norm.anno.vcf.gz.md5
     """
-}
-
-annotated_vcf_ch.into{
-    annotated_vcf_relatedness_ch
-    annotated_vcf_samples_ch
-    annotated_vcf_reporting_ch
 }
 
 // Calculate relatedness between samples
@@ -434,7 +419,7 @@ process get_per_base_coverage{
     set val(id), file(bam), file(bam_index) from original_bams_coverage_ch
 
     output:
-    set val(id), file("${id}_depth_of_coverage.csv.gz"), file("${id}_depth_of_coverage.csv.gz.tbi") into per_base_coverage_ch
+    set val(id), file("${id}_depth_of_coverage.csv.gz"), file("${id}_depth_of_coverage.csv.gz.tbi") into (sex_reporting_ch, coverage_reporting_ch, sensitivity_coverage_ch,  per_base_coverage_summary_ch)
 
     """
     gatk3 $params.medium_java_options -T DepthOfCoverage \
@@ -457,13 +442,6 @@ process get_per_base_coverage{
 
     """
 
-}
-
-per_base_coverage_ch.into{
-    sex_reporting_ch
-    coverage_reporting_ch
-    sensitivity_coverage_ch
-    per_base_coverage_summary_ch
 }
 
 // Generate a depth/coverage summary report e.g. mean depth etc
