@@ -1,22 +1,32 @@
 #!/usr/bin/env python
 
+"""
+Calculate sex using X and Y coverage.
+"""
+
 import argparse
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 
 
 parser = argparse.ArgumentParser(description='Calculate the sex from the dragen alignment metrics file')
 parser.add_argument('--file', type=str, nargs=1, required=True,
 				help='The input metrics file')
+parser.add_argument('--female_theshold', type=int, nargs=1, required=True,
+				help='female_theshold')
+parser.add_argument('--male_theshold', type=int, nargs=1, required=True,
+				help='male_theshold')
+
 
 args = parser.parse_args()
 
 file_name = Path(args.file[0]).stem
 
-female_theshold = 150
-male_theshold = 50
+female_theshold = args.female_theshold[0]
+male_theshold = args.male_theshold[0]
 
-df = pd.read_csv(args.file[0], sep='\t', header=None, names=['chr', 'pos', 'cov1', 'cov2', 'cov3'])
+df = pd.read_csv(args.file[0], sep='\t', header=None, names=['chr', 'pos', 'cov1', 'cov2', 'cov3'], dtype={'chr': str} )
 
 df_grouped = df.groupby('chr').mean()
 df_grouped['chr'] = df_grouped.index

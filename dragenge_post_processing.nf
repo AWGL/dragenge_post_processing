@@ -12,17 +12,18 @@ Define initial files
 ========================================================================================
 */
 
-reference_genome = file(params.reference_genome)
-capture_bed = file(params.capture_bed)
-sequence_dict = file(params.sequence_dict)
-gnomad_exomes = file(params.gnomad_exomes)
-gnomad_genomes = file(params.gnomad_genomes)
-vep_cache = file(params.vep_cache)
-high_confidence_snps = file(params.high_confidence_snps)
-hotspots = file(params.hotspots)
-refseq = file(params.refseq)
+params.pipeline_version = "300"
 
-reference_genome_faidx = file(params.reference_genome_faidx)
+capture_bed = file(params.capture_bed)
+coverage_per_base_bed = file(params.coverage_per_base_bed)
+coverage_report_bed = file(params.coverage_report_bed)
+reference_genome = file(params.reference_genome)
+reference_genome_index = file(params.reference_genome_index)
+vep_cache = file(params.vep_cache)
+clinvar = file(params.clinvar)
+gnotate_gnomad = file(params.gnotate_gnomad)
+gnotate_spliceai = file(params.gnotate_spliceai)
+high_confidence_snps = file(params.high_confidence_snps)
 giab_baseline = file(params.giab_baseline)
 giab_high_confidence_bed = file(params.giab_high_confidence_bed)
 giab_reference_genome_sdf = file(params.giab_reference_genome_sdf)
@@ -36,29 +37,37 @@ Define initial channels
 Channel
   .fromPath(params.variables)
   .ifEmpty { exit 1, "Cannot find any variables files matching: ${params.variables}" }
-  .set{ variables_channel }
+  .set{ variables_ch }
 
 Channel
   .fromFilePairs(params.vcf, flat: true)
   .ifEmpty { exit 1, "Cannot find a vcf file files matching: ${params.vcf}" }
-  .set { raw_vcf }
+  .set { raw_vcf_ch }
 
 Channel
   .fromFilePairs(params.bams, flat: true)
   .ifEmpty { exit 1, "Cannot find any bam files files matching: ${params.bams}" }
-  .set { original_bams }
+  .set { original_bams_ch }
 
 
-original_bams.into{
-    coverage_bams
-    contamination_bams
+variables_ch.into{
+    variables_ped_ch
+    variables_config_ch
+    variables_reporting_ch
+    variables_old_variant_database_ch
+}
+
+original_bams_ch.into{
+    original_bams_coverage_ch
+    original_bams_contamination_ch
+    original_bams_sensitivity_ch
+
 }
 
 
-variables_channel.into{
-    variables_meta
-    variables_ped
-}
+// Chromosomes for when we do VEP in parallel
+chromosome_ch = Channel.from('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', 'X', 'Y', 'MT' )
+
 
 
 /*
@@ -67,142 +76,146 @@ Main pipeline
 ========================================================================================
 */
 
+// Create PED file
+process create_ped {
 
-// Use bcftools to restrict vcf to region of interest
+    cpus params.small_task_cpus
+
+    publishDir "${params.publish_dir}/ped/", mode: 'copy'
+
+    input:
+    file(variables) from variables_ped_ch.collect()
+
+    output:
+    file("${params.sequencing_run}.ped") into (ped_config_ch, ped_reporting_ch)
+
+    """
+    create_ped.py --variables "*.variables" > ${params.sequencing_run}.ped
+    """
+}
+
+
+
+// Create json for qiagen upload
+process create_config_for_database {
+
+    cpus params.small_task_cpus
+
+    publishDir "${params.publish_dir}/database_config/", mode: 'copy'
+
+    input:
+    file(ped) from ped_config_ch
+    file(variables) from variables_config_ch.collect()
+
+    output:
+    file("${params.sequencing_run}_config.csv")
+
+    """
+    make_database_config.py \
+    --ped_file $ped \
+    --variables "*.variables" \
+    --pipeline_name dragenge_post_processing_$params.pipeline_version \
+    --output_name ${params.sequencing_run}_config.csv
+    """
+
+}
+
+
+// Merge the joint called per Chromosome VCFs and restrict to original ROI
 process restrict_vcf_to_roi{
 
-    cpus params.vcf_processing_cpus
-
-	input:
-    set val(id), file(vcf), file(vcf_index) from raw_vcf 
-
-    output:
-    set file("${params.sequencing_run}.roi.vcf.gz"), file("${params.sequencing_run}.roi.vcf.gz.tbi") into roi_vcf_channel
-
-	"""
-	bcftools view -R $capture_bed $vcf > ${params.sequencing_run}.roi.vcf
-
-	bgzip ${params.sequencing_run}.roi.vcf
-	tabix ${params.sequencing_run}.roi.vcf.gz
-	"""
-}
-
-
-// filter snps
-process select_and_filter_snps{
-
-    cpus params.vcf_processing_cpus 
+    cpus params.gatk_cpus
+    scratch params.scratch 
 
     input:
-    set file(vcf), file(vcf_index) from roi_vcf_channel 
+    set val(id), file(vcf), file(vcf_index) from raw_vcf_ch 
 
     output:
-    set file("${params.sequencing_run}.roi.filtered.vcf.gz"), file("${params.sequencing_run}.roi.filtered.vcf.gz.tbi") into filtered_vcf_channel 
+    set file("${params.sequencing_run}_roi.vcf.gz"), file("${params.sequencing_run}_roi.vcf.gz.tbi") into roi_vcf_ch
 
     """
+    bcftools view -R $capture_bed $vcf > "${params.sequencing_run}_roi.vcf"
 
-    gatk VariantFiltration \
-    -V $vcf \
-    -O ${params.sequencing_run}.roi.filtered.vcf \
-    --filter-expression "QUAL < $params.snps_min_qual" \
-    --filter-name "LowQual" \
-    --filter-expression "FS > $params.snps_max_fs" \
-    --filter-name "HighFS" \
-    --filter-expression "MQRankSum < $params.snps_min_mqranksum" \
-    --filter-name "LowMQRankSum" \
-    --filter-expression "ReadPosRankSum < $params.snps_min_readposranksum" \
-    --filter-name "LowReadPosRankSum"
-
-    bgzip ${params.sequencing_run}.roi.filtered.vcf
-    tabix ${params.sequencing_run}.roi.filtered.vcf.gz
-
+    bgzip ${params.sequencing_run}_roi.vcf
+    tabix ${params.sequencing_run}_roi.vcf.gz
     """
-
 }
 
 
-// mark genotypes with low depth with a filter
-process filter_genotypes_with_low_depth{
+// Apply quality filters to VCF
+process quality_filter_vcf{
 
-    cpus params.vcf_processing_cpus
+    cpus params.gatk_cpus
+    scratch params.scratch 
 
     input:
-    set file(vcf), file(vcf_index) from filtered_vcf_channel
+    set file(vcf), file(vcf_idx) from roi_vcf_ch
 
     output:
-    set file("${params.sequencing_run}.roi.filtered.gts.vcf.gz"), file("${params.sequencing_run}.roi.filtered.gts.vcf.gz.tbi") into filtered_gts_vcf_channel
+    set file("${params.sequencing_run}_roi_qual.vcf.gz"), file("${params.sequencing_run}_roi_qual.vcf.gz.tbi") into (quality_filtered_vcf_annotation_ch,
+                                                                                                                    quality_filtered_vcf_old_variant_database_ch, 
+                                                                                                                    quality_filtered_vcf_sensitivity_ch )
 
     """
-    gatk VariantFiltration \
-    -V $vcf \
-    -O ${params.sequencing_run}.roi.filtered.gts.vcf \
-    --genotype-filter-expression "DP < $params.min_genotype_depth" \
-    --genotype-filter-name "LowDP"
-
-    bgzip ${params.sequencing_run}.roi.filtered.gts.vcf
-    tabix ${params.sequencing_run}.roi.filtered.gts.vcf.gz
+    quality_filter.sh \
+    $vcf \
+    $params.sequencing_run \
+    $params.snp_qual \
+    $params.indel_qual \
+    $params.reference_genome \
+    "$params.medium_java_options" \
+    $params.min_dp_variant_reporting
     """
 
 }
 
-// split filtered vcf channel into four
-filtered_gts_vcf_channel.into{
-    vcf_annotation_channel
-    vcf_database_channel
-    vcf_relatedness_channel
-    vcf_contamination_channel
-}
+// Annotate using VEP and gnomad and SpliceAI
+process normalise_annotate_with_vep_and_gnomad{
 
-
-// split multiallelics and normalise
-process split_multiallelics_and_normalise{
-
-    cpus params.vcf_processing_cpus
-
-	input:
-	set file(vcf), file(vcf_index) from vcf_annotation_channel 
-
-	output:
-	set file("${params.sequencing_run}.roi.filtered.norm.vcf.gz"), file("${params.sequencing_run}.roi.filtered.norm.vcf.gz.tbi") into normalised_vcf_channel
-
-	"""
-	zcat $vcf | vt decompose -s - | vt normalize -r $reference_genome - > ${params.sequencing_run}.roi.filtered.norm.vcf
-	bgzip ${params.sequencing_run}.roi.filtered.norm.vcf
-	tabix ${params.sequencing_run}.roi.filtered.norm.vcf.gz
-
-	"""
-
-}
-
-// Annotate using VEP
-process annotate_with_vep{
-
-    cpus params.vep_cpus
+    cpus params.big_task_cpus
+    scratch params.scratch 
 
     publishDir "${params.publish_dir}/annotated_vcf/", mode: 'copy'
 
     input:
-    file(normalised_vcf) from normalised_vcf_channel
+    set file(quality_vcf), file(quality_vcf_idx) from quality_filtered_vcf_annotation_ch
 
     output:
-    set file("${params.sequencing_run}.roi.filtered.norm.anno.vcf.gz"), file("${params.sequencing_run}.roi.filtered.norm.anno.vcf.gz.tbi")  into annotated_vcf
+    set file("${params.sequencing_run}_anno.vcf.gz"), file("${params.sequencing_run}_anno.vcf.gz.tbi") into (annotated_vcf_relatedness_ch, annotated_vcf_samples_ch, annotated_vcf_reporting_ch)
+    file("${params.sequencing_run}.norm.anno.vcf.gz.md5")
 
     """
+    zcat $quality_vcf | vt decompose -s - | vt normalize -r $reference_genome - > ${params.sequencing_run}_norm.vcf
+
     vep \
     --verbose \
     --format vcf \
-    --everything \
+    --hgvs \
+    --symbol \
+    --numbers \
+    --domains \
+    --regulatory \
+    --canonical \
+    --protein \
+    --biotype \
+    --uniprot \
+    --tsl \
+    --appris \
+    --gene \
+    --variant_class \
+    --clin_sig_allele 0 \
+    --check_existing \
     --fork $params.vep_cpus \
     --species homo_sapiens \
     --assembly GRCh37 \
-    --input_file $normalised_vcf \
-    --output_file ${params.sequencing_run}.roi.filtered.norm.anno.vcf \
+    --input_file ${params.sequencing_run}_norm.vcf \
+    --output_file ${params.sequencing_run}_vep.vcf \
     --force_overwrite \
     --cache \
-    --dir  $vep_cache \
+    --dir $vep_cache \
     --fasta $reference_genome \
     --offline \
-    --cache_version 94 \
+    --cache_version $params.vepversion \
     --no_escape \
     --shift_hgvs 1 \
     --vcf \
@@ -210,63 +223,176 @@ process annotate_with_vep{
     --flag_pick \
     --pick_order biotype,canonical,appris,tsl,ccds,rank,length \
     --exclude_predicted \
-    --custom ${gnomad_genomes},gnomADg,vcf,exact,0,AF_POPMAX \
-    --custom ${gnomad_exomes},gnomADe,vcf,exact,0,AF_POPMAX 
+    --custom ${clinvar},clinvar,vcf,exact,0,CLNSIG,CLNSIGCONF
 
-    bgzip ${params.sequencing_run}.roi.filtered.norm.anno.vcf
-    tabix ${params.sequencing_run}.roi.filtered.norm.anno.vcf.gz
+    bgzip ${params.sequencing_run}_vep.vcf
+    tabix ${params.sequencing_run}_vep.vcf.gz
 
+    slivar expr --gnotate $gnotate_spliceai -o ${params.sequencing_run}_vep.spliceai.vcf -v ${params.sequencing_run}_vep.vcf.gz
+    bgzip ${params.sequencing_run}_vep.spliceai.vcf
+    tabix ${params.sequencing_run}_vep.spliceai.vcf.gz
+
+    slivar expr --gnotate $gnotate_gnomad -o ${params.sequencing_run}_anno.vcf -v ${params.sequencing_run}_vep.spliceai.vcf.gz
+    bgzip ${params.sequencing_run}_anno.vcf
+    tabix ${params.sequencing_run}_anno.vcf.gz
+
+    md5sum ${params.sequencing_run}_anno.vcf.gz > ${params.sequencing_run}.norm.anno.vcf.gz.md5
     """
 }
 
 // Calculate relatedness between samples
 process calculate_relatedness {
 
-    cpus params.relatedness_cpus
+    cpus params.small_task_cpus
 
     publishDir "${params.publish_dir}/relatedness/", mode: 'copy'
 
     input:
-    set file(vcf), file(vcf_index) from vcf_relatedness_channel
+    set file(vcf), file(vcf_index) from annotated_vcf_relatedness_ch
 
     output:
-    file("${params.sequencing_run}.relatedness2")
+    file("${params.sequencing_run}.relatedness2") into relatedness_ch
 
     """
     vcftools --relatedness2 \
     --out $params.sequencing_run \
     --gzvcf $vcf
+    """
+}
 
+
+/*
+========================================================================================
+Variant Reporting
+========================================================================================
+*/
+
+// Extract sample names from vcf
+process get_sample_names_from_vcf{
+
+    cpus params.small_task_cpus
+
+    input:
+    set file(vcf), file(vcf_index) from annotated_vcf_samples_ch
+
+    output:
+    file("${params.sequencing_run}_sample_names.txt") into sample_names_from_vcf_ch
+
+    """
+    bcftools query -l $vcf > ${params.sequencing_run}_sample_names.txt
     """
 
 }
 
+// Create a channel with sample names as the values
+sample_names_from_vcf_ch.splitCsv(header:['col1']).map{ row-> tuple(row.col1)}.set { samples_ch }
+
+// Create variant reports csvs for non mitochondrial variants
+process create_variant_reports {
+
+    cpus params.small_task_cpus
+
+    publishDir "${params.publish_dir}/variant_reports/", mode: 'copy'
+
+    input:
+    set file(vcf), file(vcf_index) from annotated_vcf_reporting_ch
+    each sample_names from samples_ch
+    file(ped) from ped_reporting_ch
+    file(variables) from variables_reporting_ch.collect()
+
+    output:
+    file("${params.sequencing_run}_${sample_names[0]}_variant_report.csv") into variant_report_channel
+
+    """
+    . ${sample_names[0]}.variables
+    germline_variant_reporter.py \
+    --vcf $vcf \
+    --proband_id ${sample_names[0]} \
+    --ped $ped \
+    --gene_list $params.gene_panel \
+    --gnomad_ad $params.gnomad_ad \
+    --gnomad_r $params.gnomad_r \
+    --min_dp $params.min_dp_variant_reporting \
+    --min_gq $params.min_gq_variant_reporting \
+    --max_parental_alt_ref_ratio $params.max_parental_alt_ref_ratio \
+    --output ${params.sequencing_run}_${sample_names[0]}_variant_report.csv \
+    --worklist \$worklistId \
+    --splice_ai $params.splice_ai_cutoff \
+    """
+}
+
+
+// make a VCF for the old variant database
+process create_vcf_for_old_variant_database{
+
+    cpus params.small_task_cpus
+
+    publishDir "${params.publish_dir}/old_variant_database_vcf/", mode: 'copy'
+
+    input:
+    set file(vcf), file(vcf_idx) from quality_filtered_vcf_old_variant_database_ch
+    file(variables) from variables_old_variant_database_ch.collect()
+
+    output:
+    file("${params.sequencing_run}_old_variant_database.vcf")
+
+    when:
+    params.create_old_database_vcf
+
+    """
+    # loop through variables and make into a metadata file
+    for i in ${variables.collect { "$it" }.join(" ")}; do
+        # source variables
+        . \$i
+        
+        echo \\#\\#SAMPLE\\=\\<ID\\=\$sampleId,Tissue\\=Germline,WorklistId\\="\$worklistId",SeqId\\="\$seqId",Assay\\="\$panel",PipelineName\\=germline_enrichment_nextflow,PipelineVersion\\="$params.pipeline_version"\\,RawSequenceQuality=0,PercentMapped=0,ATDropout=0,GCDropout=0,MeanInsertSize=0,SDInsertSize=0,DuplicationRate=0,TotalReads=0,PctSelectedBases=0,MeanOnTargetCoverage=0,PctTargetBasesCt=0,EstimatedContamination=0,GenotypicGender=None,TotalTargetedUsableBases=0,RemoteVcfFilePath=None,RemoteBamFilePath=None\\> >> ${params.sequencing_run}_meta.txt
+    done
+
+    # get header 
+    zcat $vcf | grep "^##" > header.txt
+    cat header.txt ${params.sequencing_run}_meta.txt > ${params.sequencing_run}.roi.filtered.header.vcf
+
+    zcat $vcf | grep -v "^##" >> ${params.sequencing_run}.roi.filtered.header.vcf
+
+    # remove mt variants
+    awk '\$1 !~ /^MT/ { print \$0 }' ${params.sequencing_run}.roi.filtered.header.vcf > ${params.sequencing_run}_old_variant_database.vcf
+
+    """
+}
+
+/*
+========================================================================================
+Depth & QC - Sex Calculations, Coverage Reports and Contamination
+========================================================================================
+*/
+
 // calculate intersample contamination
 process calculate_contamination {
 
-    cpus params.vcf_processing_cpus
+    cpus params.medium_task_cpus
 
     publishDir "${params.publish_dir}/contamination/", mode: 'copy'
 
     input:
-    set val(id), file(bam), file(bam_index) from contamination_bams 
+    set val(id), file(bam), file(bam_index) from original_bams_contamination_ch 
 
     output:
     file("${id}_contamination.selfSM") 
 
     """
-    gatk SelectVariants \
+    gatk3 -T SelectVariants \
     -R $reference_genome \
-    -V $high_confidence_snps \
-    -O high_confidence_snps.vcf \
-    --select-type-to-include SNP \
-    --restrict-alleles-to BIALLELIC \
+    --variant $high_confidence_snps \
+    -o high_confidence_snps.vcf \
+    -selectType SNP \
+    -restrictAllelesTo BIALLELIC \
     -L $capture_bed \
-    --exclude-intervals X \
-    --exclude-intervals Y \
-    --exclude-intervals MT \
-    --exclude-non-variants \
-    --exclude-filtered \
+    -XL X \
+    -XL Y \
+    -XL MT \
+    -env \
+    -ef \
+    -dt NONE
 
     verifyBamID \
     --vcf high_confidence_snps.vcf \
@@ -275,183 +401,150 @@ process calculate_contamination {
     --verbose \
     --ignoreRG \
     --chip-none \
-    --minMapQ 20 \
-    --maxDepth 1000 \
+    --minMapQ $params.min_mapq_contamination \
+    --maxDepth $params.max_depth_contamination \
     --precise
     """
 }
 
 
-// create ped file
-process create_ped {
+// Get per base coverage using GATK3
+process get_per_base_coverage{
 
-    cpus params.small_task_cpus
-
-    publishDir "${params.publish_dir}/ped/", mode: 'copy'
-
-    input:
-    file(variables) from variables_ped.collect()
-
-    output:
-    file("${params.sequencing_run}.ped") into ped_channel
-
-    """
-    create_ped.py --variables "*.variables" > ${params.sequencing_run}.ped
-
-    """
-
-}
-
-
-// Variant database needs extra metadata from variables files
-process collect_metadata_for_vcf{
-
-    cpus params.small_task_cpus
-
-    input:
-    file(variables) from variables_meta.collect()
-
-    output:
-    file("${params.sequencing_run}_meta.txt") into meta_data_channel
-
-    """
-    for i in ${variables.collect { "$it" }.join(" ")}; do
-
-        # source variables
-        . \$i
-        
-        echo \\#\\#SAMPLE\\=\\<ID\\=\$sampleId,Tissue\\=Germline,WorklistId\\="\$worklistId",SeqId\\="\$seqId",Assay\\="\$panel",PipelineName\\=DragenGE,PipelineVersion\\="$params.pipeline_version"\\,RawSequenceQuality=0,PercentMapped=0,ATDropout=0,GCDropout=0,MeanInsertSize=0,SDInsertSize=0,DuplicationRate=0,TotalReads=0,PctSelectedBases=0,MeanOnTargetCoverage=0,PctTargetBasesCt=0,EstimatedContamination=0,GenotypicGender=None,TotalTargetedUsableBases=0,RemoteVcfFilePath=None,RemoteBamFilePath=None\\> >> ${params.sequencing_run}_meta.txt
-    done
-
-    """
-
-}
-
-// prepare vcf for upload to existing database
-process prepare_vcf_for_database {
-
-    cpus params.vcf_processing_cpus
-
-    publishDir "${params.publish_dir}/database_vcf/", mode: 'copy'
-
-    input:
-    set file(vcf), file(vcf_index) from vcf_database_channel 
-    file(metadata) from meta_data_channel
-
-    output:
-    file("${params.sequencing_run}.roi.filtered.database.vcf") into sensitivity_calculation_vcf
-
-    """
-    # get header 
-
-    zcat $vcf | grep "^##" > header.txt
-
-    cat header.txt $metadata > ${params.sequencing_run}.roi.filtered.header.vcf
-
-    zcat $vcf | grep -v "^##" >> ${params.sequencing_run}.roi.filtered.header.vcf
-
-    # remove mt variants
-
-    awk '\$1 !~ /^MT/ { print \$0 }' ${params.sequencing_run}.roi.filtered.header.vcf > ${params.sequencing_run}.roi.filtered.database.vcf
-
-    """
-
-
-}
-
-
-// Use sambamba to generate the per base coverage
-process generate_coverage_file{
-
-    cpus params.small_task_cpus
+    cpus params.medium_task_cpus
 
     publishDir "${params.publish_dir}/coverage/", mode: 'copy'
 
-	input:
-    set val(id), file(bam), file(bam_index) from coverage_bams 
+    input:
+    set val(id), file(bam), file(bam_index) from original_bams_coverage_ch
 
     output:
-    set val(id), file("${id}_depth_of_coverage.gz"), file("${id}_depth_of_coverage.gz.tbi") into per_base_coverage_channel
-    file("${id}_depth_of_coverage.sample_summary") into depth_summary
+    set val(id), file("${id}_depth_of_coverage.csv.gz"), file("${id}_depth_of_coverage.csv.gz.tbi") into (sex_reporting_ch, coverage_reporting_ch, sensitivity_coverage_ch,  per_base_coverage_summary_ch)
 
-	"""
-    gatk3 -T DepthOfCoverage \
+    """
+    gatk3 $params.medium_java_options -T DepthOfCoverage \
     -R $reference_genome \
     -o ${id}_depth_of_coverage \
     -I $bam \
-    -L $capture_bed \
+    -L $coverage_per_base_bed \
     --countType COUNT_FRAGMENTS \
-    --minMappingQuality 20 \
-    --minBaseQuality 10 \
-    -ct $params.min_coverage \
+    --minMappingQuality $params.min_mapping_quality_coverage \
+    --minBaseQuality $params.min_base_quality_coverage\
+    -ct 20 \
     --omitLocusTable \
     -rf MappingQualityUnavailable \
     -dt NONE
 
     sed 's/:/\t/g' ${id}_depth_of_coverage \
-    | grep -v 'Locus' | sort -k1,1 -k2,2n | bgzip > ${id}_depth_of_coverage.gz
+    | grep -v 'Locus' | sort -k1,1 -k2,2n | bgzip > ${id}_depth_of_coverage.csv.gz
 
-    tabix -b 2 -e 2 -s 1 ${id}_depth_of_coverage.gz
+    tabix -b 2 -e 2 -s 1 ${id}_depth_of_coverage.csv.gz
 
-	"""
+    """
+
 }
 
-// split filtered vcf channel into four
-per_base_coverage_channel.into{
-    per_base_coverage_channel_gaps
-    per_base_coverage_channel_sex
-    per_base_coverage_channel_sensitivity
-}
+// Generate a depth/coverage summary report e.g. mean depth etc
+process create_depth_summary {
 
-
-// Use coverage calculator to get gaps etc
-process generate_gaps_files{
-
-    cpus params.small_task_cpus
+    cpus params.medium_task_cpus
 
     publishDir "${params.publish_dir}/coverage/", mode: 'copy'
 
-	input:
-    set val(id), file(depth_file), file(depth_file_index) from per_base_coverage_channel_gaps 
+    input:
+    set val(key), file(coverage), file(coverage_idx) from per_base_coverage_summary_ch
 
     output:
-    set file("${id}_gaps.bed"), file("${id}_clinical_coverage_target_metrics.txt"),  file("${id}_clinical_coverage_gene_coverage.txt")
+    file("${key}.depth_summary") into depth_summary_ch
 
-	"""
-    get_coverage.sh \
-    $capture_bed \
-    $hotspots \
-    $depth_file \
-    $id \
-    $params.min_coverage \
-    $refseq
+    """
+    zcat $coverage | awk '{print \$1"\t"\$2-1"\t"\$2"\t"\$3}' > "$key"_coverage_bed.bed
 
-	"""
+    bedtools intersect -a "$key"_coverage_bed.bed -b $capture_bed > "$key"_coverage_bed_final.bed
+
+    awk '{print \$1"\t"\$2"\t"\$4"\t"\$4}' "$key"_coverage_bed_final.bed > "$key"_per_base_final.csv
+
+    create_depth_summary.py \
+    --input_file ${key}_per_base_final.csv \
+    --output_file ${key}.depth_summary \
+    ${params.depth_thresholds.collect { "$it" }.join(" ")}
+    """
 }
 
 
-// use the alignment metrics file to calculate the sex
-process calculate_sex{
+// Calculate relatedness between samples
+process calculate_sex {
 
-    cpus params.small_task_cpus
+    cpus params.medium_task_cpus
 
-    publishDir "${params.publish_dir}/calculated_sex/", mode: 'copy'
+    publishDir "${params.publish_dir}/sex/", mode: 'copy'
 
     input:
-    set val(id), file(depth_file), file(depth_file_index) from per_base_coverage_channel_sex
+    set val(id), file(coverage), file(coverage_idx) from sex_reporting_ch
 
     output:
     file("${id}_calculated_sex.txt")
 
     """
-    calculate_sex.py --file $depth_file > ${id}_calculated_sex.txt
-
+    calculate_sex.py \
+    --file $coverage \
+    --female_theshold $params.female_threshold \
+    --male_theshold $params.male_threshold > ${id}_calculated_sex.txt
     """
-
 }
 
+
+// Generate a report of the depth/coverage over the regions
+process get_region_coverage_data {
+
+    cpus params.medium_task_cpus
+
+    publishDir "${params.publish_dir}/coverage/", mode: 'copy'
+
+    input:
+    set val(id), file(coverage_file), file(coverage_file_index) from coverage_reporting_ch
+
+    output:
+    set val(id), file("${id}_region_coverage_data.csv") into region_coverage_data
+    set val(id), file("${id}_region_coverage_summary.csv") into region_coverage_summary_data
+    set val(id), file("${id}_gene_coverage_summary.csv") into gene_summary_data
+    set val(id), file("${id}_gaps_*x.csv") into gaps_data
+
+    """
+    get_coverage_region_stats.py \
+    --input_file $coverage_file \
+    --bed $coverage_report_bed \
+    --sample_id ${id} \
+    --output_name ${id} \
+    --calculate_gene_stats_gaps true \
+    ${params.depth_thresholds.collect { "$it" }.join(" ")}
+    """
+}
+
+// merge coverage data - experimental for variant database
+process merge_coverage_data {
+
+    cpus params.medium_task_cpus
+
+    publishDir "${params.publish_dir}/coverage/", mode: 'copy'
+
+    input:
+    file(coverage_files) from gene_summary_data.collect()
+
+    output:
+    file("${params.sequencing_run}_coverage.tar")
+
+    """
+    for i in ./*_gene_coverage_summary.csv;  do cp \$i \$i.copy && gzip \$i.copy; done
+
+    tar -cvf ${params.sequencing_run}_coverage.tar *_gene_coverage_summary.csv.copy.gz
+    """
+}
+
+
+
 // filter so we only get the coverage for the giab sample
-per_base_coverage_channel_sensitivity.filter( {it[0] =~ /$params.giab_sample.*/ } ).set{ giab_per_base_coverage_channel }
+original_bams_sensitivity_ch.filter( {it[0] =~ /$params.giab_sample.*/ } ).set{ giab_original_bams_sensitivity_ch }
 
 // calculate sensitivity using giab
 process calculate_sensitivity{
@@ -461,8 +554,8 @@ process calculate_sensitivity{
     publishDir "${params.publish_dir}/sensitivity/", mode: 'copy'
 
     input:
-    set val(id), file(depth_file), file(depth_file_index) from giab_per_base_coverage_channel 
-    file(vcf) from sensitivity_calculation_vcf
+    set val(id), file(bam), file(bam_index) from giab_original_bams_sensitivity_ch 
+    set file(vcf), file(vcf_idx) from quality_filtered_vcf_sensitivity_ch
 
     output:
     file("${id}_sensitivity.txt")
@@ -471,33 +564,37 @@ process calculate_sensitivity{
     params.calculate_sensitivity == true 
 
     """
-    calculate_sensitivity.sh $depth_file \
+    calculate_sensitivity.sh $bam \
     $params.giab_sample \
     $vcf \
     $giab_baseline \
-    $reference_genome_faidx \
+    $reference_genome_index \
     $giab_high_confidence_bed \
-    $giab_reference_genome_sdf > ${id}_sensitivity.txt
+    $giab_reference_genome_sdf \
+    $capture_bed \
+    $params.min_mapping_quality_coverage \
+    $params.min_mapping_quality_coverage \
+    $reference_genome \
+    > ${id}_sensitivity.txt
     """
-
-
 }
 
+// Create marker once complete
 workflow.onComplete{
 
-    if (workflow.success){
+	if (workflow.success){
 
-        ran_ok = "${params.sequencing_run} success!.\n"
-    }
-    else{
+		ran_ok = "${params.sequencing_run} success!.\n"
+	}
+	else{
 
-        ran_ok = "${params.sequencing_run} fail!.\n"
+		ran_ok = "${params.sequencing_run} fail!.\n"
 
-    }
+	}
 
-    def newFile = new File("${params.publish_dir}/post_processing_finished.txt")
+	def newFile = new File("${params.publish_dir}/post_processing_finished.txt")
 
-    newFile.createNewFile()
-    newFile.append(ran_ok)
-
+	newFile.createNewFile()
+	newFile.append(ran_ok)
 }
+
