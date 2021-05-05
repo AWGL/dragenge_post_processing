@@ -345,7 +345,7 @@ process create_vcf_for_old_variant_database{
         # source variables
         . \$i
         
-        echo \\#\\#SAMPLE\\=\\<ID\\=\$sampleId,Tissue\\=Germline,WorklistId\\="\$worklistId",SeqId\\="\$seqId",Assay\\="\$panel",PipelineName\\=germline_enrichment_nextflow,PipelineVersion\\="$params.pipeline_version"\\,RawSequenceQuality=0,PercentMapped=0,ATDropout=0,GCDropout=0,MeanInsertSize=0,SDInsertSize=0,DuplicationRate=0,TotalReads=0,PctSelectedBases=0,MeanOnTargetCoverage=0,PctTargetBasesCt=0,EstimatedContamination=0,GenotypicGender=None,TotalTargetedUsableBases=0,RemoteVcfFilePath=None,RemoteBamFilePath=None\\> >> ${params.sequencing_run}_meta.txt
+        echo \\#\\#SAMPLE\\=\\<ID\\=\$sampleId,Tissue\\=Germline,WorklistId\\="\$worklistId",SeqId\\="\$seqId",Assay\\="\$panel",PipelineName\\=dragenge_post_processing,PipelineVersion\\="$params.pipeline_version"\\,RawSequenceQuality=0,PercentMapped=0,ATDropout=0,GCDropout=0,MeanInsertSize=0,SDInsertSize=0,DuplicationRate=0,TotalReads=0,PctSelectedBases=0,MeanOnTargetCoverage=0,PctTargetBasesCt=0,EstimatedContamination=0,GenotypicGender=None,TotalTargetedUsableBases=0,RemoteVcfFilePath=None,RemoteBamFilePath=None\\> >> ${params.sequencing_run}_meta.txt
     done
 
     # get header 
@@ -354,8 +354,11 @@ process create_vcf_for_old_variant_database{
 
     zcat $vcf | grep -v "^##" >> ${params.sequencing_run}.roi.filtered.header.vcf
 
+
+    fix_ploidy.py --input_vcf ${params.sequencing_run}.roi.filtered.header.vcf --output_vcf ${params.sequencing_run}.roi.filtered.header.fixed.vcf
+
     # remove mt variants
-    awk '\$1 !~ /^MT/ { print \$0 }' ${params.sequencing_run}.roi.filtered.header.vcf > ${params.sequencing_run}_old_variant_database.vcf
+    awk '\$1 !~ /^MT/ { print \$0 }' ${params.sequencing_run}.roi.filtered.header.fixed.vcf > ${params.sequencing_run}_old_variant_database.vcf
 
     """
 }
