@@ -347,23 +347,27 @@ if __name__ == '__main__':
 
 		# write gene summary to file
 		with open(f'{output_name}_gene_coverage_summary.csv', 'w') as csvfile:
-			spamwriter = csv.writer(csvfile, delimiter='\t')
+			spamwriter = csv.writer(csvfile, delimiter=',')
 			
-			headers = ['gene', 'mean_depth']
+			headers = ['gene']
 
 			for depth in min_depths:
 					
 				headers.append(f'pct_gtr_{depth}x')
+
+			headers.append('mean_depth')
 				
 			spamwriter.writerow(headers)
 			
 			for key in gene_length_dict:
 				
-				row = [key, round(mean_coverage_dict[key],4)]
+				row = [key]
 				
 				for depth in min_depths:
 					
 					row.append(round(pct_gt_dict[f'pct_gtr_{depth}x'][key],4))
+
+				row.append(round(mean_coverage_dict[key],4))
 					
 					
 				spamwriter.writerow(row)
