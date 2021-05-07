@@ -182,7 +182,7 @@ process normalise_annotate_with_vep_and_gnomad{
 
     output:
     set file("${params.sequencing_run}_anno.vcf.gz"), file("${params.sequencing_run}_anno.vcf.gz.tbi") into (annotated_vcf_relatedness_ch, annotated_vcf_samples_ch, annotated_vcf_reporting_ch)
-    file("${params.sequencing_run}.norm.anno.vcf.gz.md5")
+    file("${params.sequencing_run}_anno.vcf.gz.md5")
 
     """
     zcat $quality_vcf | vt decompose -s - | vt normalize -r $reference_genome - > ${params.sequencing_run}_norm.vcf
@@ -236,7 +236,7 @@ process normalise_annotate_with_vep_and_gnomad{
     bgzip ${params.sequencing_run}_anno.vcf
     tabix ${params.sequencing_run}_anno.vcf.gz
 
-    md5sum ${params.sequencing_run}_anno.vcf.gz > ${params.sequencing_run}.norm.anno.vcf.gz.md5
+    md5sum ${params.sequencing_run}_anno.vcf.gz > ${params.sequencing_run}_anno.vcf.gz.md5
     """
 }
 
