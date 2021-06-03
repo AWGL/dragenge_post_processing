@@ -13,6 +13,8 @@ Performs the following processes:
 - Prepares VCF for Database
 - Annotates VCF with VEP
 
+Updated for use with Human Reference Genome Build GRCh38.
+
 ## Install
 
 ```
