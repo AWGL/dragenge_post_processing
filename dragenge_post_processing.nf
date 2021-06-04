@@ -134,7 +134,7 @@ process restrict_vcf_to_roi{
     set file("${params.sequencing_run}_roi.vcf.gz"), file("${params.sequencing_run}_roi.vcf.gz.tbi") into roi_vcf_ch
 
     """
-    bcftools view -R $capture_bed $vcf > "${params.sequencing_run}_roi.vcf"
+    bcftools sort $vcf | bcftools view -R $capture_bed - > "${params.sequencing_run}_roi.vcf"
 
     bgzip ${params.sequencing_run}_roi.vcf
     tabix ${params.sequencing_run}_roi.vcf.gz
