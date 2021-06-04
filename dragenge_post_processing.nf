@@ -390,9 +390,9 @@ process calculate_contamination {
     -selectType SNP \
     -restrictAllelesTo BIALLELIC \
     -L $capture_bed \
-    -XL X \
-    -XL Y \
-    -XL MT \
+    -XL chrX \
+    -XL chrY \
+    -XL chrM \
     -env \
     -ef \
     -dt NONE
