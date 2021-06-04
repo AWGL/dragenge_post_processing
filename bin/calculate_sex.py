@@ -31,8 +31,8 @@ df = pd.read_csv(args.file[0], sep='\t', header=None, names=['chr', 'pos', 'cov1
 df_grouped = df.groupby('chr').mean()
 df_grouped['chr'] = df_grouped.index
 
-x_cov = df_grouped[df_grouped['chr']=='X'].iloc[0]['cov1']
-y_cov = df_grouped[df_grouped['chr']=='Y'].iloc[0]['cov1']
+x_cov = df_grouped[df_grouped['chr']=='chrX'].iloc[0]['cov1']
+y_cov = df_grouped[df_grouped['chr']=='chrY'].iloc[0]['cov1']
 
 x_y_ratio = x_cov/y_cov
 
