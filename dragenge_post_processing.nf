@@ -207,7 +207,7 @@ process normalise_annotate_with_vep_and_gnomad{
     --check_existing \
     --fork $params.vep_cpus \
     --species homo_sapiens \
-    --assembly GRCh37 \
+    --assembly GRCh38 \
     --input_file ${params.sequencing_run}_norm.vcf \
     --output_file ${params.sequencing_run}_vep.vcf \
     --force_overwrite \
