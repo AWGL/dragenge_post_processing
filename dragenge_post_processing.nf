@@ -65,10 +65,6 @@ original_bams_ch.into{
 }
 
 
-// Chromosomes for when we do VEP in parallel
-chromosome_ch = Channel.from('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', 'X', 'Y', 'MT' )
-
-
 
 /*
 ========================================================================================
@@ -207,7 +203,7 @@ process normalise_annotate_with_vep_and_gnomad{
     --check_existing \
     --fork $params.vep_cpus \
     --species homo_sapiens \
-    --assembly GRCh38 \
+    --assembly $params.genome_build \
     --input_file ${params.sequencing_run}_norm.vcf \
     --output_file ${params.sequencing_run}_vep.vcf \
     --force_overwrite \
@@ -382,6 +378,38 @@ process calculate_contamination {
     output:
     file("${id}_contamination.selfSM") 
 
+    script:
+    if (params.genome_build == 'GRCh37')
+
+    """
+    gatk3 -T SelectVariants \
+    -R $reference_genome \
+    --variant $high_confidence_snps \
+    -o high_confidence_snps.vcf \
+    -selectType SNP \
+    -restrictAllelesTo BIALLELIC \
+    -L $capture_bed \
+    -XL X \
+    -XL Y \
+    -XL MT \
+    -env \
+    -ef \
+    -dt NONE
+
+    verifyBamID \
+    --vcf high_confidence_snps.vcf \
+    --bam $bam \
+    --out ${id}_contamination \
+    --verbose \
+    --ignoreRG \
+    --chip-none \
+    --minMapQ $params.min_mapq_contamination \
+    --maxDepth $params.max_depth_contamination \
+    --precise
+    """
+
+    else if (params.genome_build == 'GRCh38')
+
     """
     gatk3 -T SelectVariants \
     -R $reference_genome \
@@ -408,6 +436,9 @@ process calculate_contamination {
     --maxDepth $params.max_depth_contamination \
     --precise
     """
+
+    else
+    error "Invalid genome_build mode: ${genome_build}"
 }
 
 
@@ -492,7 +523,8 @@ process calculate_sex {
     calculate_sex.py \
     --file $coverage \
     --female_theshold $params.female_threshold \
-    --male_theshold $params.male_threshold > ${id}_calculated_sex.txt
+    --male_theshold $params.male_threshold \
+    --genome_build $params.genome_build > ${id}_calculated_sex.txt
     """
 }
 

@@ -66,7 +66,17 @@ def normalise_value_on_region_length(df, gene_length_dict, value):
 	
 	gene_length = gene_length_dict[gene]
 	
-	return value * (region_length / gene_length)
+	try:
+		return value * (region_length / gene_length)
+
+	except:
+
+		start = df['start']
+		end = df['end']
+		chrom = df['chrom']
+
+		print(gene, value, start, end, chrom )
+		return 0.0
 
 
 
