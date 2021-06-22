@@ -50,6 +50,10 @@ Channel
   .set { original_bams_ch }
 
 
+Channel
+  .fromFilePairs(params.sv_vcf, flat: true)
+  .set { original_sv_vcf_ch }
+
 variables_ch.into{
     variables_ped_ch
     variables_config_ch
@@ -61,9 +65,7 @@ original_bams_ch.into{
     original_bams_coverage_ch
     original_bams_contamination_ch
     original_bams_sensitivity_ch
-
 }
-
 
 
 /*
@@ -610,9 +612,84 @@ process calculate_sensitivity{
     $params.min_mapping_quality_coverage \
     $params.min_mapping_quality_coverage \
     $reference_genome \
+    "$params.medium_java_options" \
     > ${id}_sensitivity.txt
     """
 }
+
+
+process annotate_cnvs_svs {
+
+    cpus params.sv_cpus
+
+    publishDir "${params.publish_dir}/annotated_sv_vcf/", mode: 'copy'
+
+    when:
+    params.annotate_svs
+
+    input:
+    set val(id), file(vcf), file(vcf_index) from original_sv_vcf_ch
+
+    output:
+    set file("${params.sequencing_run}.sv.vep.vcf.gz"), file("${params.sequencing_run}.sv.vep.vcf.gz.tbi")
+    file("${params.sequencing_run}.sv.vep.vcf.gz.md5")
+
+
+    when:
+    params.annotate_svs
+
+    """
+    bcftools norm -m - $vcf > ${params.sequencing_run}.sv.norm.vcf
+
+    vep --verbose \
+    --format vcf \
+    --hgvs \
+    --symbol \
+    --numbers \
+    --domains \
+    --regulatory \
+    --canonical \
+    --protein \
+    --biotype \
+    --uniprot \
+    --tsl \
+    --appris \
+    --variant_class \
+    --check_existing \
+    --species homo_sapiens \
+    --assembly $params.genome_build \
+    --input_file ${params.sequencing_run}.sv.norm.vcf \
+    --output_file ${params.sequencing_run}.sv.vep.vcf \
+    --cache \
+    --dir $vep_cache \
+    --fasta $reference_genome \
+    --offline \
+    --cache_version $params.vepversion \
+    --no_escape \
+    --shift_hgvs 1 \
+    --vcf \
+    --refseq \
+    --flag_pick \
+    --exclude_predicted \
+    --max_sv_size $params.sv_max_size \
+    --buffer_size $params.sv_vep_buffer_size
+
+    bgzip ${params.sequencing_run}.sv.vep.vcf
+    tabix ${params.sequencing_run}.sv.vep.vcf.gz
+
+    md5sum ${params.sequencing_run}.sv.vep.vcf.gz > ${params.sequencing_run}.sv.vep.vcf.gz.md5
+
+    """
+}
+
+
+
+
+
+
+
+
+
 
 // Create marker once complete
 workflow.onComplete{

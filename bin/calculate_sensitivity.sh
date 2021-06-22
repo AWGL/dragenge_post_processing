@@ -12,10 +12,10 @@ roi_bed=${8}
 min_mapping_quality_coverage=${9} 
 min_base_quality_coverage=${10}
 reference_genome=${11}
-
+java_options=${12}
 
 # recalcualte depth of coverage using roi bed
-gatk3 -T DepthOfCoverage \
+gatk3 $java_options -T DepthOfCoverage \
 -R $reference_genome \
 -o "$sample_id"_depth_of_coverage \
 -I $bam \
