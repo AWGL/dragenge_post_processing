@@ -682,15 +682,6 @@ process annotate_cnvs_svs {
     """
 }
 
-
-
-
-
-
-
-
-
-
 // Create marker once complete
 workflow.onComplete{
 
